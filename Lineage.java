@@ -226,7 +226,7 @@ public class Lineage implements Statistics {
         //One could add a distribution histogram for instance
         String report = "<HTML> <BODY> <h1>Stress value</h1> "
                 + "<hr>"
-                + "<br> The ancestors are reported in the ancestors column (see data laboratory)<br />"
+                + "<br> The results are reported in the Lineage column (see data laboratory)<br />"
                 + "<br> <br />"
                 + "</BODY></HTML>";
         return report;
