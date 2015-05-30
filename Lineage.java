@@ -33,7 +33,6 @@ Contributor(s): Wouter Spekkink
 package org.wouterspekkink.lineage;
 
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.gephi.data.attributes.api.AttributeColumn;
@@ -70,7 +69,6 @@ public class Lineage implements Statistics {
     Node origin; 
     private boolean isDirected;
     boolean [] nodeAncestors;
-    private boolean isCanceled;
     boolean foundNode = false;
     private boolean nodesLeftAnc = true;
     private boolean nodesLeftDes = true;
@@ -95,10 +93,8 @@ public class Lineage implements Statistics {
     }
   
     public void execute(Graph hgraph, AttributeModel attributeModel) {
-        isCanceled = false;
         //Look if the result column already exist and create it if needed
         AttributeTable nodeTable = attributeModel.getNodeTable();
-        AttributeTable edgeTable = attributeModel.getEdgeTable();
         AttributeColumn col = nodeTable.getColumn(LINEAGE);
         if (col == null) {
             col = nodeTable.addColumn(LINEAGE, "Lineage", AttributeType.STRING, AttributeOrigin.COMPUTED, "Unrelated");
@@ -111,9 +107,7 @@ public class Lineage implements Statistics {
         //process is currently modifying it.
         hgraph.readLock();
         
-        N = hgraph.getNodeCount();
-        HashMap<Node, Integer> indicies = createIndiciesMap(hgraph);
-                
+        
         // Initialize the list of ancestors
         for (Node n : hgraph.getNodes()) {
             NodeData info = n.getNodeData();
@@ -133,34 +127,20 @@ public class Lineage implements Statistics {
             NodeIterable nodeIterAnc = getNodeIterAnc(hgraph, origin);
             NodeIterable nodeIterDes = getNodeIterDes(hgraph, origin);
         
-            for (Node node : nodeIterAnc) {
-                doNodesAnc.add(node);  
-                int n_index = indicies.get(node);
-                node.getAttributes().setValue(col.getIndex(), "Ancestor");   
-            }
-        
             for (Node node : nodeIterDes) {
-                doNodesDes.add(node);
-                int n_index = indicies.get(node);
-                node.getAttributes().setValue(col.getIndex(), "Descendant");
-            }
-        
-            while(nodesLeftAnc) {
-                if(doNodesAnc.isEmpty()) {
-                    nodesLeftAnc = false;
-                } else {
-                    for (Node node : doNodesAnc) {
-                        NodeIterable nodeIterTwo = getNodeIterAnc(hgraph, node);
-                        for(Node nodeTwo : nodeIterTwo) {
-                            int n_index = indicies.get(nodeTwo);
-                            nodeTwo.getAttributes().setValue(col.getIndex(), "Ancestor");
-                            doNodesAnc.add(nodeTwo);
-                        }
-                    
-                        doNodesAnc.remove(node);
-                    }   
+                if(node.getNodeData().getAttributes().getValue(LINEAGE).equals("Unrelated") || node.getNodeData().getAttributes().getValue(LINEAGE).equals("Ancestor")) {
+                    doNodesDes.add(node);
+                    node.getAttributes().setValue(col.getIndex(), "Descendant");
                 }
             }
+            
+            for (Node node : nodeIterAnc) {
+                if(node.getNodeData().getAttributes().getValue(LINEAGE).equals("Unrelated")) {
+                    doNodesAnc.add(node);
+                    node.getAttributes().setValue(col.getIndex(), "Ancestor");   
+                }
+            }
+        
             while(nodesLeftDes) {
                 if(doNodesDes.isEmpty()) {
                     nodesLeftDes = false;
@@ -168,12 +148,28 @@ public class Lineage implements Statistics {
                     for (Node node : doNodesDes) {
                         NodeIterable nodeIterTwo = getNodeIterDes(hgraph, node);
                         for(Node nodeTwo : nodeIterTwo) {
-                            int n_index = indicies.get(nodeTwo);
-                            nodeTwo.getAttributes().setValue(col.getIndex(), "Descendant");
-                            doNodesDes.add(nodeTwo);
+                            if(nodeTwo.getNodeData().getAttributes().getValue(LINEAGE).equals("Unrelated") || nodeTwo.getNodeData().getAttributes().getValue(LINEAGE).equals("Ancestor")) {
+                                nodeTwo.getAttributes().setValue(col.getIndex(), "Descendant");
+                                doNodesDes.add(nodeTwo);
+                            }
                         }
-                    
                         doNodesDes.remove(node);
+                    }   
+                }
+            }
+            while(nodesLeftAnc) {
+                if(doNodesAnc.isEmpty()) {
+                    nodesLeftAnc = false;
+                } else {
+                    for (Node node : doNodesAnc) {
+                        NodeIterable nodeIterTwo = getNodeIterAnc(hgraph, node);
+                        for(Node nodeTwo : nodeIterTwo) {
+                            if(nodeTwo.getNodeData().getAttributes().getValue(LINEAGE).equals("Unrelated")) {
+                                nodeTwo.getAttributes().setValue(col.getIndex(), "Ancestor");
+                                doNodesAnc.add(nodeTwo);
+                            }
+                        }
+                        doNodesAnc.remove(node);
                     }   
                 }
             }
@@ -181,29 +177,19 @@ public class Lineage implements Statistics {
         }
         hgraph.readUnlock();
     }
-   
-    private NodeIterable getNodeIterAnc(Graph thisGraph, Node n) {
-        NodeIterable nodeIter;
-        nodeIter = ((DirectedGraph) thisGraph).getPredecessors(n);
-        return nodeIter;
-    }
-    
+ 
     private NodeIterable getNodeIterDes(Graph thisGraph, Node n) {
         NodeIterable nodeIter;
         nodeIter = ((DirectedGraph) thisGraph).getSuccessors(n);
         return nodeIter;
     }
-              
-    public  HashMap<Node, Integer> createIndiciesMap(Graph hgraph) {
-       HashMap<Node, Integer> indicies = new HashMap<Node, Integer>();
-        int index = 0;
-        for (Node s : hgraph.getNodes()) {
-            indicies.put(s, index);
-            index++;
-        } 
-        return indicies;
+    
+    private NodeIterable getNodeIterAnc(Graph thisGraph, Node n) {
+        NodeIterable nodeIter;
+        nodeIter = ((DirectedGraph) thisGraph).getPredecessors(n);
+        return nodeIter;
     }
-     
+                 
     public void setDirected(boolean isDirected) {
         this.isDirected = isDirected;
     }
