@@ -59,13 +59,16 @@ import org.openide.util.Lookup;
 
 public class Lineage implements Statistics {
     
-    /* Currently I am assuming that we're working with only two dimensions
-    Later I might want to add an iterator to determine the number of
-    dimensions to be used. */
-    
+ 
     public static final String LINEAGE = "Lineage";
+    public static final String ORIGIN = "IsOrigin";
+    public static final String ANCESTOR = "IsAncestor";
+    public static final String DESCENDANT = "IsDescendant";
+    public static final String ADISTANCE = "DistanceAncestor";
+    public static final String DDISTANCE = "DistanceDescendant";
     private String originName = "";
-    private int N;
+    private int counterA = -1;
+    private int counterD = 1;    
     Node origin; 
     private boolean isDirected;
     boolean [] nodeAncestors;
@@ -92,23 +95,58 @@ public class Lineage implements Statistics {
         execute(graph, attributeModel);
     }
   
+    // Create all variable columns and initialize them
+    // Columns will be removed (overwritten) if they are alread there.
     public void execute(Graph hgraph, AttributeModel attributeModel) {
         //Look if the result column already exist and create it if needed
         AttributeTable nodeTable = attributeModel.getNodeTable();
         AttributeColumn col = nodeTable.getColumn(LINEAGE);
+        AttributeColumn col1 = nodeTable.getColumn(ORIGIN);
+        AttributeColumn col2 = nodeTable.getColumn(ANCESTOR);
+        AttributeColumn col3 = nodeTable.getColumn(DESCENDANT);
+        AttributeColumn col4 = nodeTable.getColumn(ADISTANCE);
+        AttributeColumn col5 = nodeTable.getColumn(DDISTANCE);
+        
         if (col == null) {
             col = nodeTable.addColumn(LINEAGE, "Lineage", AttributeType.STRING, AttributeOrigin.COMPUTED, "Unrelated");
         } else {
             nodeTable.removeColumn(col);
             col = nodeTable.addColumn(LINEAGE, "Lineage", AttributeType.STRING, AttributeOrigin.COMPUTED, "Unrelated");
         } 
+        if (col1 == null) {
+            col1 = nodeTable.addColumn(ORIGIN, "IsOrigin", AttributeType.BOOLEAN, AttributeOrigin.COMPUTED, false);
+        } else {
+            nodeTable.removeColumn(col1);
+            col1 = nodeTable.addColumn(ORIGIN, "IsOrigin", AttributeType.BOOLEAN, AttributeOrigin.COMPUTED, false);
+        } 
+        if (col2 == null) {
+            col2 = nodeTable.addColumn(ANCESTOR, "IsAncestor", AttributeType.BOOLEAN, AttributeOrigin.COMPUTED, false);
+        } else {
+            nodeTable.removeColumn(col2);
+            col2 = nodeTable.addColumn(ANCESTOR, "IsAncestor", AttributeType.BOOLEAN, AttributeOrigin.COMPUTED, false);
+        } 
+        if (col3 == null) {
+            col3 = nodeTable.addColumn(DESCENDANT, "IsDescendant", AttributeType.BOOLEAN, AttributeOrigin.COMPUTED, false);
+        } else {
+            nodeTable.removeColumn(col3);
+            col3 = nodeTable.addColumn(DESCENDANT, "IsDescendant", AttributeType.BOOLEAN, AttributeOrigin.COMPUTED, false);
+        } 
+        if (col4 == null) {
+            col4 = nodeTable.addColumn(ADISTANCE, "DistanceAncestor", AttributeType.INT, AttributeOrigin.COMPUTED, 0);
+        } else {
+            nodeTable.removeColumn(col4);
+            col4 = nodeTable.addColumn(ADISTANCE, "DistanceAncestor", AttributeType.INT, AttributeOrigin.COMPUTED, 0);
+        } 
+        if (col5 == null) {
+            col5 = nodeTable.addColumn(DDISTANCE, "DistanceDescendant", AttributeType.INT, AttributeOrigin.COMPUTED, 0);
+        } else {
+            nodeTable.removeColumn(col5);
+            col5 = nodeTable.addColumn(DDISTANCE, "DistanceDescendant", AttributeType.INT, AttributeOrigin.COMPUTED, 0);
+        } 
               
-        //Lock to graph. This is important to have consistent results if another
-        //process is currently modifying it.
         hgraph.readLock();
         
-        
-        // Initialize the list of ancestors
+        // First let's find the origin that is submitted by the user and we'll only run the rest of the plugin if the origin is found.
         for (Node n : hgraph.getNodes()) {
             NodeData info = n.getNodeData();
             String tempName = info.getId();
@@ -118,58 +156,89 @@ public class Lineage implements Statistics {
             } 
         }
         
+        // We only run the algorithm if an appropriate origin node was submitted by the user.
         if(foundNode) {
             origin.getAttributes().setValue(col.getIndex(), "Origin");
+            origin.getAttributes().setValue(col1.getIndex(), true);
             List<Node> doNodesAnc = new CopyOnWriteArrayList<Node>();
             List<Node> doNodesDes = new CopyOnWriteArrayList<Node>();
         
-            // I should somehow loop through the results after this.
             NodeIterable nodeIterAnc = getNodeIterAnc(hgraph, origin);
             NodeIterable nodeIterDes = getNodeIterDes(hgraph, origin);
         
-            for (Node node : nodeIterDes) {
-                if(node.getNodeData().getAttributes().getValue(LINEAGE).equals("Unrelated") || node.getNodeData().getAttributes().getValue(LINEAGE).equals("Ancestor")) {
-                    doNodesDes.add(node);
-                    node.getAttributes().setValue(col.getIndex(), "Descendant");
-                }
-            }
-            
             for (Node node : nodeIterAnc) {
                 if(node.getNodeData().getAttributes().getValue(LINEAGE).equals("Unrelated")) {
                     doNodesAnc.add(node);
-                    node.getAttributes().setValue(col.getIndex(), "Ancestor");   
+                    node.getAttributes().setValue(col.getIndex(), "Ancestor");
+                    node.getAttributes().setValue(col2.getIndex(), true);
+                    node.getAttributes().setValue(col4.getIndex(), counterA);
+                } else if (node.getNodeData().getAttributes().getValue(LINEAGE).equals("Descendant")) {
+                    node.getAttributes().setValue(col.getIndex(), "Hybrid");
+                    node.getAttributes().setValue(col2.getIndex(), true);
+                    node.getAttributes().setValue(col4.getIndex(), counterA);
+                }
+            }
+            
+            for (Node node : nodeIterDes) {
+                if(node.getNodeData().getAttributes().getValue(LINEAGE).equals("Unrelated")) {
+                    doNodesDes.add(node);
+                    node.getAttributes().setValue(col.getIndex(), "Descendant");
+                    node.getAttributes().setValue(col3.getIndex(), true);
+                    node.getAttributes().setValue(col5.getIndex(), counterD);
+                } else if (node.getNodeData().getAttributes().getValue(LINEAGE).equals("Ancestor")) {
+                    node.getAttributes().setValue(col.getIndex(), "Hybrid");
+                    node.getAttributes().setValue(col3.getIndex(), true);
+                    node.getAttributes().setValue(col5.getIndex(), counterD);
                 }
             }
         
-            while(nodesLeftDes) {
-                if(doNodesDes.isEmpty()) {
-                    nodesLeftDes = false;
-                } else {
-                    for (Node node : doNodesDes) {
-                        NodeIterable nodeIterTwo = getNodeIterDes(hgraph, node);
-                        for(Node nodeTwo : nodeIterTwo) {
-                            if(nodeTwo.getNodeData().getAttributes().getValue(LINEAGE).equals("Unrelated") || nodeTwo.getNodeData().getAttributes().getValue(LINEAGE).equals("Ancestor")) {
-                                nodeTwo.getAttributes().setValue(col.getIndex(), "Descendant");
-                                doNodesDes.add(nodeTwo);
-                            }
-                        }
-                        doNodesDes.remove(node);
-                    }   
-                }
-            }
             while(nodesLeftAnc) {
                 if(doNodesAnc.isEmpty()) {
                     nodesLeftAnc = false;
                 } else {
+                    counterA -= 1;
                     for (Node node : doNodesAnc) {
                         NodeIterable nodeIterTwo = getNodeIterAnc(hgraph, node);
                         for(Node nodeTwo : nodeIterTwo) {
                             if(nodeTwo.getNodeData().getAttributes().getValue(LINEAGE).equals("Unrelated")) {
                                 nodeTwo.getAttributes().setValue(col.getIndex(), "Ancestor");
+                                nodeTwo.getAttributes().setValue(col2.getIndex(), true);
+                                nodeTwo.getAttributes().setValue(col4.getIndex(), counterA);
                                 doNodesAnc.add(nodeTwo);
+                            } else if (nodeTwo.getNodeData().getAttributes().getValue(LINEAGE).equals("Descendant")) {
+                                nodeTwo.getAttributes().setValue(col.getIndex(), "Hybrid");
+                                nodeTwo.getAttributes().setValue(col2.getIndex(), true);
+                                nodeTwo.getAttributes().setValue(col4.getIndex(), counterA);
+                                doNodesDes.add(nodeTwo);
                             }
                         }
                         doNodesAnc.remove(node);
+                    }   
+                }
+            }
+            
+            while(nodesLeftDes) {
+                if(doNodesDes.isEmpty()) {
+                    nodesLeftDes = false;
+                } else {
+                    counterD += 1;
+                    for (Node node : doNodesDes) {
+
+                        NodeIterable nodeIterTwo = getNodeIterDes(hgraph, node);
+                        for(Node nodeTwo : nodeIterTwo) {
+                            if(nodeTwo.getNodeData().getAttributes().getValue(LINEAGE).equals("Unrelated")) {
+                                nodeTwo.getAttributes().setValue(col.getIndex(), "Descendant");
+                                nodeTwo.getAttributes().setValue(col3.getIndex(), true);
+                                nodeTwo.getAttributes().setValue(col5.getIndex(), counterD);
+                                doNodesDes.add(nodeTwo);
+                            } else if (nodeTwo.getNodeData().getAttributes().getValue(LINEAGE).equals("Ancestor")) {
+                                nodeTwo.getAttributes().setValue(col.getIndex(), "Hybrid");
+                                nodeTwo.getAttributes().setValue(col3.getIndex(), true);
+                                nodeTwo.getAttributes().setValue(col5.getIndex(), counterD);
+                                doNodesDes.add(nodeTwo);
+                            }
+                        }
+                        doNodesDes.remove(node);
                     }   
                 }
             }
